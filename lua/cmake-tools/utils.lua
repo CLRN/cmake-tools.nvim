@@ -236,7 +236,7 @@ end
 ---@return nil
 function utils.execute(cmd, env_script, env, args, cwd, executor, on_success, cmake_notifications)
   -- save all
-  vim.cmd("silent exec " .. '"wall"')
+  pcall(vim.cmd, "silent exec " .. '"wall"')
 
   notification.notification = cmake_notifications
   notification.notification.enabled = cmake_notifications.executor.enabled
