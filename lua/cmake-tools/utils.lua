@@ -83,6 +83,19 @@ function utils.deepcopy(orig, copies)
   return copy
 end
 
+function utils.copyfile(src, target)
+  if utils.file_exists(src) then
+    -- if we don't always use terminal
+    local cmd = "exec "
+      .. "'!cmake -E copy "
+      .. utils.transform_path(src)
+      .. " "
+      .. utils.transform_path(target)
+      .. "'"
+    vim.cmd(cmd)
+  end
+end
+
 function utils.softlink(src, target)
   if utils.file_exists(src) and not utils.file_exists(target) then
     -- if we don't always use terminal
@@ -157,21 +170,20 @@ end
 -- @return true if exists else false
 function utils.has_active_job(runner_data, executor_data)
   return utils.get_executor(executor_data.name).has_active_job(executor_data.opts)
-    or utils.get_runner(runner_data.name).has_active_job(runner_data.opts)
+  -- or utils.get_runner(runner_data.name).has_active_job(runner_data.opts)
 end
 
-local notify_update_line = function(out, err)
-  if not notification.notification.enabled then
-    return
-  end
-  local line = err and err or out
-  if line ~= nil then
-    if line and vim.fn.match(line, "^%[%s*(%d+)%s*%%%]") then -- only show lines containing build progress e.g [ 12%]
-      notification.notification.id = notification.notify( -- notify with percentage and message
-        line,
-        err and "warn" or notification.notification.level,
-        { replace = notification.notification.id, title = "CMakeTools" }
-      )
+local notify_update_line = function(ntfy)
+  return function(out, err)
+    if not ntfy.enabled then
+      return
+    end
+    local line = err and err or out
+    if line ~= nil then
+      if line and vim.fn.match(line, "^%[%s*(%d+)%s*%%%]") then -- only show lines containing build progress e.g [ 12%]
+        ntfy:notify(line, err and "warn" or "info")
+        ntfy:startSpinner()
+      end
     end
   end
 end
@@ -183,46 +195,39 @@ end
 ---@param args table arguments to the executable
 ---@param cwd string the directory to run in
 ---@param runner runner_conf the executor or runner
----@param on_success nil|function extra arguments, f.e on_success is a callback to be called when the process finishes
+---@param callback nil|function extra arguments, f.e on_success is a callback to be called when the process finishes
 ---@return nil
-function utils.run(cmd, env_script, env, args, cwd, runner, on_success, cmake_notifications)
+function utils.run(cmd, env_script, env, args, cwd, runner, callback)
   -- save all
   vim.cmd("silent exec " .. '"wall"')
 
-  notification.notification = cmake_notifications
-  notification.notification.enabled = cmake_notifications.runner.enabled
+  local ntfy = notification:new("runner")
 
-  if notification.notification.enabled then
-    notification.notification.spinner_idx = 1
-    notification.notification.level = "info"
+  ntfy:notify(cmd, "info")
 
-    notification.notification.id =
-      notification.notify(cmd, notification.notification.level, { title = "CMakeTools" })
-    notification.update_spinner()
+  if scratch.buffer ~= nil then
+    local _mes =
+      { "[RUN]:", cmd, table.concat(args, " "), "<ENV>", table.concat(env, " "), "{CWD}", cwd }
+    scratch.append(table.concat(_mes, " "))
   end
-
-  local _mes =
-    { "[RUN]:", cmd, table.concat(args, " "), "<ENV>", table.concat(env, " "), "{CWD}", cwd }
-  scratch.append(table.concat(_mes, " "))
 
   utils.get_runner(runner.name).run(cmd, env_script, env, args, cwd, runner.opts, function(code)
     local msg = "Exited with code " .. code
-    local level = cmake_notifications.level
     local icon = ""
+    local level = nil -- use the previously defined level
     if code ~= 0 then
       level = "error"
       icon = ""
     end
-    notification.notify(
-      msg,
-      level,
-      { icon = icon, replace = notification.notification.id, timeout = 3000 }
-    )
-    notification.notification = {} -- reset and stop update_spinner
-    if code == 0 and on_success then
-      on_success()
+    ntfy:notify(msg, level, { icon = icon, timeout = 3000 })
+    if type(callback) == "function" then
+      if code == 0 then
+        callback(Result:new(Types.SUCCESS, nil, nil))
+      else
+        callback(Result:new(Types.CMAKE_RUN_FAILED, nil, "Process exited with code " .. code))
+      end
     end
-  end, notify_update_line)
+  end, notify_update_line(ntfy))
 end
 
 ---Run a command using specified executor, this is used by generate, build, clean, install, etc.
@@ -232,48 +237,83 @@ end
 ---@param args table arguments to the executable
 ---@param cwd string the directory to run in
 ---@param executor executor_conf the executor or runner
----@param on_success nil|function extra arguments, f.e on_success is a callback to be called when the process exits with a 0 exit code
+---@param callback nil|fun(cmake.Result) extra arguments, f.e on_success is a callback to be called when the process exits with a 0 exit code
 ---@return nil
-function utils.execute(cmd, env_script, env, args, cwd, executor, on_success, cmake_notifications)
+function utils.execute(cmd, env_script, env, args, cwd, executor, callback)
   -- save all
   pcall(vim.cmd, "silent exec " .. '"wall"')
 
-  notification.notification = cmake_notifications
-  notification.notification.enabled = cmake_notifications.executor.enabled
+  local ntfy = notification:new("executor")
+  ntfy:notify(cmd, "info")
 
-  if notification.notification.enabled then
-    notification.notification.spinner_idx = 1
-    notification.notification.level = "info"
-
-    notification.notification.id =
-      notification.notify(cmd, notification.notification.level, { title = "CMakeTools" })
-    notification.update_spinner()
+  if scratch.buffer ~= nil then
+    local _mes =
+      { "[EXECUTE]:", cmd, table.concat(args, " "), "<ENV>", table.concat(env, " "), "{CWD}", cwd }
+    scratch.append(table.concat(_mes, " "))
   end
-
-  local _mes =
-    { "[EXECUTE]:", cmd, table.concat(args, " "), "<ENV>", table.concat(env, " "), "{CWD}", cwd }
-  scratch.append(table.concat(_mes, " "))
 
   utils
     .get_executor(executor.name)
     .run(cmd, env_script, env, args, cwd, executor.opts, function(code)
+      ntfy:stopSpinner()
       local msg = "Exited with code " .. code
-      local level = cmake_notifications.level
+      local level = nil -- use the previously defined level
       local icon = ""
       if code ~= 0 then
         level = "error"
         icon = ""
       end
-      notification.notify(
-        msg,
-        level,
-        { icon = icon, replace = notification.notification.id, timeout = 3000 }
-      )
-      notification.notification = {} -- reset and stop update_spinner
-      if code == 0 and type(on_success) == "function" then
-        on_success()
+      ntfy:notify(msg, level, { icon = icon, timeout = 3000 })
+      if type(callback) == "function" then
+        if code == 0 then
+          callback(Result:new(Types.SUCCESS, nil, nil))
+        else
+          callback(
+            Result:new(
+              Types.CMAKE_RUN_FAILED,
+              nil,
+              string.format(
+                "Process %s %s (cwd=%s) exited with code %d",
+                cmd,
+                table.concat(args, " "),
+                cwd,
+                code
+              )
+            )
+          )
+        end
       end
-    end, notify_update_line)
+    end, notify_update_line(ntfy))
+end
+
+function utils.get_nested(tbl, ...)
+  local value = tbl
+  for _, key in ipairs({ ... }) do
+    value = value and value[key]
+    if value == nil then
+      return nil
+    end
+  end
+  return value
+end
+
+function utils.split_string_by_delimiter(s, delimiter, item)
+  local answer = {}
+  local delimiter1 = delimiter or ";"
+  for x in string.gmatch(s, "(.-)" .. delimiter1) do
+    table.insert(answer, x)
+  end
+  if #answer == 0 then
+    return nil
+  elseif item then -- does the user want an entry verses a parsed table?
+    if #answer >= item then
+      return answer[item]
+    else
+      return nil
+    end
+  else
+    return answer
+  end
 end
 
 return utils

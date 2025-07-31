@@ -6,14 +6,21 @@ local const = {
   cmake_regenerate_on_save = true, -- auto generate when save CMakeLists.txt
   cmake_generate_options = { "-DCMAKE_EXPORT_COMPILE_COMMANDS=1" }, -- this will be passed when invoke `CMakeGenerate`
   cmake_build_options = {}, -- this will be passed when invoke `CMakeBuild`
+  cmake_show_disabled_build_presets = true,
   cmake_build_directory = function()
     if osys.iswin32 then
       return "out\\${variant:buildType}"
     end
     return "out/${variant:buildType}"
   end, -- this is used to specify generate directory for cmake
-  cmake_soft_link_compile_commands = true, -- this will automatically make a soft link from compile commands file to project root dir
-  cmake_compile_commands_from_lsp = false, -- this will automatically set compile commands file location using lsp, to use it, please set `cmake_soft_link_compile_commands` to false
+  cmake_compile_commands_options = {
+    action = "soft_link", -- available options: soft_link, copy, lsp, none
+    -- soft_link: this will automatically make a soft link from compile commands file to target
+    -- copy:      this will automatically copy compile commands file to target
+    -- lsp:       this will automatically set compile commands file location using lsp
+    -- none:      this will make this option ignored
+    target = vim.loop.cwd(), -- path to directory, this is used only if action == "soft_link" or action == "copy"
+  },
   cmake_kits_path = nil, -- this is used to specify global cmake kits path, see CMakeKits for detailed usage
   cmake_variants_message = {
     short = { show = true }, -- whether to show short message
@@ -41,7 +48,10 @@ local const = {
       toggleterm = {
         direction = "float", -- 'vertical' | 'horizontal' | 'tab' | 'float'
         close_on_exit = false, -- whether close the terminal when exit
-        auto_scroll = true, -- whether auto scroll to the bottom
+        auto_scroll = true, -- auto scroll on new input
+        scroll_on_error = false, -- scroll to bottom on error
+        auto_focus = true, -- auto focus the terminal on activation
+        focus_on_error = false, -- focus on error
         singleton = true, -- single instance, autocloses the opened one, if present
       },
       overseer = {
@@ -50,8 +60,11 @@ local const = {
             "terminal",
           },
         }, -- options to pass into the `overseer.new_task` command
-        on_new_task = function(task) end, -- a function that gets overseer.Task when it is created, before calling `task:start`
+        on_new_task = function(task)
+          require("overseer").open({ enter = false, direction = "right" })
+        end, -- a function that gets overseer.Task when it is created, before calling `task:start`
       },
+      vimux = {},
       terminal = {
         name = "Executor Terminal",
         prefix_name = "[CMakeTools]: ", -- This must be included and must be unique, otherwise the terminals will not work. Do not use a simple spacebar " ", or any generic name
@@ -62,6 +75,7 @@ local const = {
         single_terminal_per_instance = true, -- Single instance, multiple windows
         single_terminal_per_tab = true, -- Single instance per tab
         keep_terminal_static_location = true, -- Static location of the instance if avialable
+        auto_resize = true, -- Resize the terminal if it already exists
 
         -- Running Tasks
         start_insert = false, -- If you want to enter terminal with :startinsert upon using :CMakeRun
@@ -84,7 +98,10 @@ local const = {
       toggleterm = {
         direction = "float", -- 'vertical' | 'horizontal' | 'tab' | 'float'
         close_on_exit = false, -- whether close the terminal when exit
-        auto_scroll = true, -- whether auto scroll to the bottom
+        auto_scroll = true, -- auto scroll on new input
+        scroll_on_error = false, -- scroll to bottom on error
+        auto_focus = true, -- auto focus the terminal on activation
+        focus_on_error = false, -- focus on error
         singleton = true, -- single instance, autocloses the opened one, if present
       },
       overseer = {
@@ -95,6 +112,7 @@ local const = {
         }, -- options to pass into the `overseer.new_task` command
         on_new_task = function(task) end, -- a function that gets overseer.Task when it is created, before calling `task:start`
       },
+      vimux = {},
       terminal = {
         name = "Runner Terminal",
         prefix_name = "[CMakeTools]: ", -- This must be included and must be unique, otherwise the terminals will not work. Do not use a simple spacebar " ", or any generic name
@@ -105,11 +123,13 @@ local const = {
         single_terminal_per_instance = true, -- Single instance, multiple windows
         single_terminal_per_tab = true, -- Single instance per tab
         keep_terminal_static_location = true, -- Static location of the instance if avialable
+        auto_resize = true, -- Resize the terminal if it already exists
 
         -- Running Tasks
         start_insert = false, -- If you want to enter terminal with :startinsert upon using :CMakeRun
         focus = false, -- Focus on terminal when cmake task is launched.
         do_not_add_newline = false, -- Do not hit enter on the command inserted when using :CMakeRun, allowing a chance to review or modify the command before hitting enter.
+        use_shell_alias = false, -- Hide the implementation details used to run the built target by using a shell alias
       },
     },
   },
@@ -120,6 +140,7 @@ local const = {
     refresh_rate_ms = 100, -- how often to iterate icons
   },
   cmake_virtual_text_support = true, -- Show the target related to current file using virtual text (at right corner)
+  cmake_use_scratch_buffer = false, -- A buffer that shows what cmake-tools has done
 }
 
 return const
