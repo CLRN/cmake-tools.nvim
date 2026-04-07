@@ -28,6 +28,7 @@ local osys = require("cmake-tools.osys")
 require("cmake-tools").setup {
   cmake_command = "cmake", -- this is used to specify cmake command path
   ctest_command = "ctest", -- this is used to specify ctest command path
+  ctest_show_labels = false, -- also show labels in the test picker
   cmake_use_preset = true,
   cmake_regenerate_on_save = true, -- auto generate when save CMakeLists.txt
   cmake_generate_options = { "-DCMAKE_EXPORT_COMPILE_COMMANDS=1" }, -- this will be passed when invoke `CMakeGenerate`
@@ -48,7 +49,7 @@ require("cmake-tools").setup {
                           -- copy:      this will automatically copy compile commands file to target
                           -- lsp:       this will automatically set compile commands file location using lsp
                           -- none:      this will make this option ignored
-    target = vim.loop.cwd() -- path to directory, this is used only if action == "soft_link" or action == "copy"
+    target = vim.loop.cwd, -- path or function returning path to directory, this is used only if action == "soft_link" or action == "copy"
   },
   cmake_kits_path = nil, -- this is used to specify global cmake kits path, see CMakeKits for detailed usage
   cmake_variants_message = {
@@ -159,6 +160,7 @@ require("cmake-tools").setup {
         start_insert = false, -- If you want to enter terminal with :startinsert upon using :CMakeRun
         focus = false, -- Focus on terminal when cmake task is launched.
         do_not_add_newline = false, -- Do not hit enter on the command inserted when using :CMakeRun, allowing a chance to review or modify the command before hitting enter.
+        use_shell_alias = false, -- Hide the verbose command wrapper by using a shell alias, showing only the program's output (currently not supported on Windows)
       },
     },
   },

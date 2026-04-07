@@ -88,9 +88,9 @@ function utils.copyfile(src, target)
     -- if we don't always use terminal
     local cmd = "exec "
       .. "'!cmake -E copy "
-      .. utils.transform_path(src)
+      .. utils.shell_quote(src)
       .. " "
-      .. utils.transform_path(target)
+      .. utils.shell_quote(target)
       .. "'"
     vim.cmd(cmd)
   end
@@ -101,22 +101,19 @@ function utils.softlink(src, target)
     -- if we don't always use terminal
     local cmd = "exec "
       .. "'!cmake -E create_symlink "
-      .. utils.transform_path(src)
+      .. utils.shell_quote(src)
       .. " "
-      .. utils.transform_path(target)
+      .. utils.shell_quote(target)
       .. "'"
     vim.cmd(cmd)
   end
 end
 
-function utils.transform_path(path, keep)
-  if keep then
-    return path
-  end
-  if path[1] ~= '"' and string.find(path, " ") then
-    return '"' .. path .. '"'
+function utils.shell_quote(str)
+  if str[1] ~= '"' and string.find(str, " ") then
+    return '"' .. str .. '"'
   else
-    return path
+    return str
   end
 end
 
@@ -212,6 +209,7 @@ function utils.run(cmd, env_script, env, args, cwd, runner, callback)
   end
 
   utils.get_runner(runner.name).run(cmd, env_script, env, args, cwd, runner.opts, function(code)
+    ntfy:stopSpinner()
     local msg = "Exited with code " .. code
     local icon = ""
     local level = nil -- use the previously defined level
